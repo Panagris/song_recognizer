@@ -1,0 +1,18 @@
+[package]
+name = "recognizer"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+clap = { version = "4.5.53", features = ["derive"] }
+hound = "3.5.1"
+rand = "0.7"
+rustfft = "6.4.1"
+diesel = { version = "2.2.0", features = ["sqlite", "returning_clauses_for_sqlite_3_35"] }
+# build libsqlite3 as part of the build process
+# uncomment this line if you run into setup issues
+# libsqlite3-sys = { version = "0.30", features = ["bundled"] }
+dotenvy = "0.15"
+rspotify = "0.15.3"
