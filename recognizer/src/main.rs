@@ -16,7 +16,7 @@ use crate::recognizer::shazam;
 use crate::recognizer::shazam::Match;
 use crate::db::db_utils;
 use crate::recognizer::declarations::{FILE_NOT_FOUND, NO_SONG_MATCH_ERROR};
-// use crate::spotify::spotify_utils;
+use crate::spotify::spotify_utils;
 
 /** A program to identify songs from an audio file.
 Functions similar to Shazam.
@@ -35,14 +35,15 @@ struct Args {
     // TODO: add option to listen live from microphone
 }
 
-fn main() -> Result<(), u8> {
+#[tokio::main]
+async fn main() -> Result<(), u8> {
     let args = Args::parse();
 
     if let Some(add_song_file) = args.add_song {
 
         let song_title = get_song_title(&add_song_file)?;
 
-        let song_artist = "Ryan Beatty".to_string();
+        let song_artist = "Beyoncé".to_string();
 
         let song_id = db_utils::store_song(&song_title, &song_artist, "".to_owned())?;
 
@@ -70,13 +71,13 @@ fn main() -> Result<(), u8> {
             return Err(NO_SONG_MATCH_ERROR);
         }
 
-        // let best_match: Match = matches[0].clone();
+        let best_match: Match = matches[0].clone();
 
-        for matched_song in matches {
-            println!("{:?}", matched_song);
-        }
+        // for matched_song in matches {
+        //     println!("{:?}", matched_song);
+        // }
 
-        // spotify_utils::track_on_spotify(best_match.song_title, best_match.song_artist)?
+        spotify_utils::play_song(best_match.song_title, best_match.song_artist).await?;
     }
 
     Ok(())
