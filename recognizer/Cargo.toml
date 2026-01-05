@@ -13,4 +13,5 @@ rustfft = "6.4.1"
 diesel = { version = "2.2.0", features = ["sqlite", "returning_clauses_for_sqlite_3_35"] }
 dotenvy = "0.15"
 rspotify = { version = "0.15.3", features = ["cli", "env-file"] }
-tokio = { version = "1.48.0", features = ["rt", "rt-multi-thread", "macros"] }
+tokio = { version = "1.11.0", features = ["rt-multi-thread", "macros"] }
+webbrowser = "1.0"

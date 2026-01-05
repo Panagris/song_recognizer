@@ -8,10 +8,9 @@ use crate::recognizer::fingerprint::{KeyAudioPoint};
 
 #[derive(Debug, Clone)]
 pub struct Match {
-    #[allow(unused)] // TODO use later!
     pub song_title: String,
-    #[allow(unused)]
     pub song_artist: String,
+    pub spotify_uri: Option<String>,
     score: f64,
 }
 
@@ -91,12 +90,14 @@ pub fn find_matches_from_fingerprint(fingerprint: HashMap<u32, u32>) -> Result<V
     let mut match_list = Vec::<Match>::new();
 
     for (song_id, score) in scores {
+
         match db_utils::get_song_by_id(song_id) {
             Ok(song) => {
                 match_list.push(
                     Match {
                             song_title: song.title,
                             song_artist: song.artist,
+                            spotify_uri: song.spotify_uri,
                             score
                     }
                 );

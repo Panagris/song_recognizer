@@ -15,7 +15,7 @@ use crate::recognizer::fingerprint::KeyAudioPoint;
 use crate::recognizer::shazam;
 use crate::recognizer::shazam::Match;
 use crate::db::db_utils;
-use crate::recognizer::declarations::{FILE_NOT_FOUND, NO_SONG_MATCH_ERROR};
+use crate::recognizer::declarations::{FILE_NOT_FOUND, INCOMPATIBLE_FILE_ERROR, NO_SONG_MATCH_ERROR};
 use crate::spotify::spotify_utils;
 
 /** A program to identify songs from an audio file.
@@ -37,18 +37,24 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<(), u8> {
+
+    let _file = "../songs/White Teeth_Ryan Beatty.wav".to_string();
+    let _song: String = "White Teeth".to_string();
+    let _artist: String = "Ryan Beatty".to_string();
+
+    assert_eq!( get_song_title_artist(&_file), Ok((_song, _artist)) );
+
     let args = Args::parse();
 
     if let Some(add_song_file) = args.add_song {
 
-        let song_title = get_song_title(&add_song_file)?;
+        let (song_title, song_artist) = get_song_title_artist(&add_song_file)?;
 
-        let song_artist = "Beyoncé".to_string();
+        let uri = spotify_utils::get_track_uri(&song_title, &song_artist).await;
 
-        let song_id = db_utils::store_song(&song_title, &song_artist, "".to_owned())?;
+        let song_id = db_utils::store_song(&song_title, &song_artist, uri)?;
 
         let fingerprint = fingerprint::fingerprint_audio(&add_song_file, song_id)?;
-
 
         db_utils::store_fingerprints(fingerprint)?;
     }
@@ -73,17 +79,32 @@ async fn main() -> Result<(), u8> {
 
         let best_match: Match = matches[0].clone();
 
-        // for matched_song in matches {
-        //     println!("{:?}", matched_song);
-        // }
+        if let Some(uri) = best_match.spotify_uri {
+            if uri.is_empty() {
 
-        spotify_utils::play_song(best_match.song_title, best_match.song_artist).await?;
+                let uri: String = spotify_utils::play_song(
+                    &best_match.song_title, &best_match.song_artist
+                ).await?;
+
+                db_utils::update_song_uri(&best_match.song_title, &best_match.song_artist, uri)?;
+            } else {
+                spotify_utils::play_song_from_uri(&uri).await?;
+            }
+
+        } else {
+
+            let uri: String = spotify_utils::play_song(
+                &best_match.song_title, &best_match.song_artist
+            ).await?;
+
+            db_utils::update_song_uri(&best_match.song_title, &best_match.song_artist, uri)?;
+        }
     }
 
     Ok(())
 }
 
-fn get_song_title(file_path: &String) -> Result<String, u8> {
+fn get_song_title_artist(file_path: &String) -> Result<(String, String), u8> {
 
     match File::open(file_path) {
         Err(_) => {
@@ -95,14 +116,24 @@ fn get_song_title(file_path: &String) -> Result<String, u8> {
 
     let file_as_path = Path::new(file_path);
 
-    match file_as_path.file_stem() {
+    let file_name: &str = match file_as_path.file_stem() {
         None => {
             eprintln!("No file stem found: `{}`", file_path);
-            Err(FILE_NOT_FOUND)
+            return Err(FILE_NOT_FOUND);
         },
+
         Some(file_name) => {
-            Ok(file_name.to_str().unwrap().to_string())
+            file_name.to_str().unwrap()
         }
+    };
+
+    let vec_names: Vec<&str> = file_name.split('_').collect();
+
+    if vec_names.len() < 2 {
+        return Err(INCOMPATIBLE_FILE_ERROR);
     }
 
+    let (song_name, artist_name) = (vec_names[0], vec_names[1]);
+
+    Ok( (song_name.to_string(), artist_name.to_string()) )
 }
