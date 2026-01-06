@@ -1,6 +1,4 @@
-/*
-file: src/recognizer/spectrogram.rs
- */
+// file: src/recognizer/spectrogram.rs
 
 use crate::recognizer::declarations::SPECTROGRAM_GENERATION_FAILURE;
 use rustfft::{num_complex::Complex, FftPlanner};
@@ -11,12 +9,13 @@ const DSP_RATIO: u32 = 4;
 const WINDOW_SIZE: usize = 1024;
 const SCROLL_SIZE: usize = WINDOW_SIZE / 2; // allow overlap
 
-pub(crate) struct Peak {
-    pub(crate) frequency: f64,
-    pub(crate) time_sec: f64,
+pub struct Peak {
+    pub frequency: f64,
+    pub time_sec: f64,
 }
 
-pub(crate) fn gen_spectrogram(sample: Vec<f64>, sample_rate: u32) -> Result<Vec<Vec<f64>>, u8> {
+/// Given a digitized audio sample, produce the spectrogram as a map of floating point magnitudes.
+pub fn gen_spectrogram(sample: Vec<f64>, sample_rate: u32) -> Result<Vec<Vec<f64>>, u8> {
     let mut spectrogram: Vec<Vec<f64>> = Vec::new();
 
     if sample.len() == 0 {
@@ -63,6 +62,7 @@ pub(crate) fn gen_spectrogram(sample: Vec<f64>, sample_rate: u32) -> Result<Vec<
     Ok(spectrogram)
 }
 
+// Remove frequency values below a certain threshold.
 fn lowpass_filter(input: Vec<f64>, cutoff_frequency: f64, sample_rate: u32) -> Vec<f64> {
     let time_constant = 1.0 / (2.0 * PI * cutoff_frequency);
     let dt = 1.0 / sample_rate as f64;
@@ -88,13 +88,8 @@ fn lowpass_filter(input: Vec<f64>, cutoff_frequency: f64, sample_rate: u32) -> V
         .collect::<Vec<f64>>()
 }
 
+// Reduce the number of samples in an audio input, compressing data to improve performance.
 fn downsample(input: Vec<f64>, sample_rate: u32, target_sample_rate: u32) -> Result<Vec<f64>, u8> {
-    // Unneeded because rates defined as unsigned integers
-    // if target_sample_rate <= 0 || sample_rate <= 0 {
-    //     eprintln!("Sample rates must be positive");
-    //     return Err(SPECTROGRAM_GENERATION_FAILURE);
-    // }
-
     if target_sample_rate > sample_rate {
         eprintln!("Target sample rate must be less than or equal to original sample rate");
         return Err(SPECTROGRAM_GENERATION_FAILURE);
@@ -126,7 +121,10 @@ fn downsample(input: Vec<f64>, sample_rate: u32, target_sample_rate: u32) -> Res
     Ok(resampled)
 }
 
-pub(crate) fn get_peaks(spectrogram: Vec<Vec<f64>>, duration: f64, sample_rate: u32) -> Vec<Peak> {
+/// Find the "characteristic" components of an audio-source spectrogram by finding the
+/// frequencies with the largest magnitude in the set of frequency ranges human ears perceive the
+/// best.
+pub fn get_peaks(spectrogram: Vec<Vec<f64>>, duration: f64, sample_rate: u32) -> Vec<Peak> {
     let mut peaks = Vec::<Peak>::new();
 
     if spectrogram.len() < 1 {

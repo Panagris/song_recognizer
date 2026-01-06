@@ -1,16 +1,19 @@
 // file: src/recognizer/wav.rs
 
+const STARTING_INDEX: i32 = 0;
+
 use crate::recognizer::declarations::{FILE_NOT_FOUND, INCOMPATIBLE_FILE_ERROR};
 use hound::WavSpec;
 use std::fs::File;
 
-pub(crate) struct WavInfo {
+pub struct WavInfo {
     pub spec: WavSpec,
     pub duration_sec: f64,
     pub left_channel_samples: Vec<f64>,
     pub right_channel_samples: Vec<f64>,
 }
 
+/// Returns metadata and L-R channel samples of a .wav file given a String path on success.
 pub fn get_wav_info(file_path: &String) -> Result<WavInfo, u8> {
     // Check the file exists and is in the .wav format
     match File::open(&file_path) {
@@ -53,12 +56,15 @@ pub fn get_wav_info(file_path: &String) -> Result<WavInfo, u8> {
     let all_samples_iter = wav_reader
         .samples::<i16>()
         .filter_map(Result::ok)
-        .into_iter();
+        .into_iter()
+        .map(|x: i16| x as f64);
 
     let left_channel_samples: Vec<f64>;
 
+    // If there is one channel, then let the left channel hold all the samples and right be an
+    // empty Vec.
     if spec.channels == 1 {
-        left_channel_samples = all_samples_iter.map(|x| x as f64).collect();
+        left_channel_samples = all_samples_iter.collect();
 
         return Ok(WavInfo {
             spec,
@@ -68,29 +74,21 @@ pub fn get_wav_info(file_path: &String) -> Result<WavInfo, u8> {
         });
     }
 
-    // there are 2 channels
     if spec.channels == 2 {
         let right_channel_samples: Vec<f64>;
 
         // Channel data is interleaved (e.g., Bytes 1 and 2 are for the left channel, Bytes 3 and 4
         // are for the right channel. So, the first 16 bits (Bytes 1 & 2) will be for the left
         // channel, the next 16 for the right channel).
-        // let left = wav_reader.samples::<i16>();
-        let mut index = -1;
-        let (left_channel_i16, right_channel_i16): (Vec<i16>, Vec<i16>) = all_samples_iter
-            .partition(|_: &i16| {
-                index += 1;
-                index % 2 == 0
-            });
 
-        left_channel_samples = left_channel_i16
-            .into_iter()
-            .map(|sample: i16| sample as f64)
-            .collect();
-        right_channel_samples = right_channel_i16
-            .into_iter()
-            .map(|sample: i16| sample as f64)
-            .collect();
+        // With zero-indexing, if `index` is even, then it belongs to the left channel, right
+        // channel if odd.
+        let mut index: i32 = STARTING_INDEX;
+        (left_channel_samples, right_channel_samples) = all_samples_iter.partition(|_: &f64| {
+            let bool_return: bool = index % 2 == 0;
+            index += 1;
+            bool_return
+        });
 
         return Ok(WavInfo {
             spec,

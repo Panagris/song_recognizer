@@ -1,26 +1,27 @@
 // file: src/spotify/spotify_utils.rs
-// purpose: search for a spotify track given a name and play that song
+// purpose: connect to the Spotify Web API using the rspotify crate for functionality including
+// searching for track URIs and playing a track
 
 use crate::recognizer::declarations::SPOTIFY_ERROR;
+use rspotify::{
+    model::{Country, FullTrack, Market, SearchResult, SearchType, TrackId},
+    prelude::*,
+    scopes, AuthCodeSpotify, ClientError, ClientResult, Config, Credentials, OAuth,
+    DEFAULT_API_BASE_URL, DEFAULT_AUTH_BASE_URL, DEFAULT_CACHE_PATH, DEFAULT_PAGINATION_CHUNKS,
+};
 use std::path::PathBuf;
 use std::sync::Arc;
-use rspotify::{AuthCodeSpotify, ClientError, ClientResult, Config, Credentials, OAuth,
-               prelude::*,
-               scopes,
-               model::{Country, Market, SearchType, FullTrack, SearchResult, TrackId},
-               DEFAULT_API_BASE_URL, DEFAULT_AUTH_BASE_URL, DEFAULT_CACHE_PATH, DEFAULT_PAGINATION_CHUNKS};
 use webbrowser;
 
-
+/// Returns a SearchResult that may contain the top 5 matching Tracks on Spotify for a given query
 async fn search_tracks(spotify: &AuthCodeSpotify, track_query: &str) -> ClientResult<SearchResult> {
-
     // Obtain a token before submitting a request
     match authorize_client(&spotify).await {
-        Ok(()) => {},
+        Ok(()) => {}
         Err(client_error) => {
             eprintln!("{:?}", client_error);
             return Err(client_error);
-        },
+        }
     }
 
     let result: ClientResult<_> = spotify
@@ -31,25 +32,28 @@ async fn search_tracks(spotify: &AuthCodeSpotify, track_query: &str) -> ClientRe
             None,
             Some(5),
             None,
-        ).await;
+        )
+        .await;
 
     result
 }
 
 //noinspection RsUnresolvedMethod
-pub async fn get_track_uri(track_name: &String, artist: &String) -> Option<String> {
-
+/// Returns the unique Spotify URI for the top result of a search for a Track based on a name and
+/// artist if the track exists.
+pub async fn get_track_uri(track_name: String, artist: String) -> Option<String> {
     let spotify: AuthCodeSpotify = get_spotify_client();
 
-    let query = format!("track:{} artist:{}", &track_name, artist);
+    let query = format!("track:{} artist:{}", track_name, artist);
 
     let result: ClientResult<_> = search_tracks(&spotify, query.as_str()).await;
 
     let track_results: SearchResult = match result {
         Ok(track_results) => track_results,
         Err(err) => {
-            eprintln!("Search error! {err:?}");
-            return None
+            eprintln!("ERROR: Could not find URI for song `{}`!", track_name);
+            eprintln!("{:?}", err);
+            return None;
         }
     };
 
@@ -59,25 +63,20 @@ pub async fn get_track_uri(track_name: &String, artist: &String) -> Option<Strin
             let mut desired_track: Option<FullTrack> = None;
 
             for track in tracks {
-                if track.name.contains(track_name) {
+                if track.name.contains(&track_name) {
                     desired_track = Some(track);
                     break;
                 }
             }
 
             if desired_track.is_none() {
-                eprintln!("No tracks found for track: `{}`!", track_name);
-                // return Err(SPOTIFY_ERROR);
-                return None
+                eprintln!("No Spotify tracks found for song: `{}`!", track_name);
+                return None;
             }
 
             desired_track.unwrap()
         }
-        _ => {
-            println!("Not a track!");
-            return None
-            // return Err(SPOTIFY_ERROR);
-        }
+        _ => return None,
     };
 
     let track_uri = desired_track.id.unwrap();
@@ -90,23 +89,23 @@ pub async fn get_track_uri(track_name: &String, artist: &String) -> Option<Strin
     Some(track_uri.to_string())
 }
 
-/// Play a track on Spotify and return the URI for that track
+/// Given a name and artist, play a track on Spotify. Returns the Spotify URI for that track or
+/// error.
 pub async fn play_song(track_name: &String, artist: &String) -> Result<String, u8> {
-
-    let track_uri = match get_track_uri(track_name, artist).await {
+    let track_uri = match get_track_uri(track_name.to_string(), artist.to_string()).await {
         Some(track_uri) => track_uri,
         None => return Err(SPOTIFY_ERROR),
     };
 
     let spotify = get_spotify_client();
-    do_play_song(&spotify, track_uri.as_str()).await
+    do_play_song(&spotify, track_uri.as_str())
+        .await
         .map(|()| track_uri)
         .map_err(|e: ClientError| {
             eprintln!("{:?}", e);
             SPOTIFY_ERROR
         })
 }
-
 
 /// Returns an initialized but not yet authorized Client to handle Spotify API actions
 fn get_spotify_client() -> AuthCodeSpotify {
@@ -136,7 +135,7 @@ fn get_spotify_client() -> AuthCodeSpotify {
     );
     let oauth = OAuth::from_env(scopes).unwrap();
 
-    let config = Config  {
+    let config = Config {
         api_base_url: DEFAULT_API_BASE_URL.to_string(),
         auth_base_url: DEFAULT_AUTH_BASE_URL.to_string(),
         cache_path: PathBuf::from(DEFAULT_CACHE_PATH),
@@ -149,71 +148,49 @@ fn get_spotify_client() -> AuthCodeSpotify {
     AuthCodeSpotify::with_config(creds, oauth, config)
 }
 
+/// Plays a song on Spotify with a User's active device given a Spotify URI.
 pub async fn play_song_from_uri(track_uri: &String) -> Result<(), u8> {
     let spotify = get_spotify_client();
 
-    // // /Users/chiagozieokoye/RustRoverProjects/song_recognizer/.venv
-    // let output = Command::new("../.venv/bin/python3")
-    //     .arg("./src/spotify/play_song.py")
-    //     .arg(track_uri.to_string())
-    //     .output();
-    //
-    // match output {
-    //     Ok(output) => {
-    //         println!("Python output: {:?}", output);
-    //         Ok(())
-    //     }
-    //     Err(err) => {
-    //         eprintln!("Could not get output of python! {:?}", err);
-    //         Err(SPOTIFY_ERROR)
-    //     }
-    // }
-    do_play_song(&spotify, track_uri.as_str()).await
+    do_play_song(&spotify, track_uri.as_str())
+        .await
         .map_err(|e: ClientError| {
             eprintln!("{:?}", e);
             SPOTIFY_ERROR
         })
 }
 
+/// Performs request for play_song()
+async fn do_play_song(spotify: &AuthCodeSpotify, track_uri: &str) -> ClientResult<()> {
+    authorize_client(spotify).await?;
 
-/* async fn do_stuff() -> ClientResult<()> {
-    // The credentials must be available in the environment. Enable the
-    // `env-file` feature in order to read them from an `.env` file.
-    let creds = Credentials::from_env().unwrap();
+    // Before trying to play the song, ensure that there is an active device
+    match spotify.device().await {
+        Ok(devices) => {
+            if devices.is_empty() {
+                return Err(ClientError::Cli(
+                    "ERROR: User does not have an active Spotify device!".to_string(),
+                ));
+                // TODO: use Spotify Web SDK to play a random song
+            }
+        }
+        Err(e) => {
+            eprintln!("ERROR: Could not get User's active devices!");
+            return Err(e);
+        }
+    }
 
-    // Using every possible scope
-    let scopes = scopes!(
-        "user-read-recently-played",
-        "user-read-currently-playing",
-        "user-read-playback-state",
-        "user-read-playback-position",
-        "user-modify-playback-state"
-    );
-    let oauth = OAuth::from_env(scopes).unwrap();
+    let uris = [PlayableId::Track(TrackId::from_uri(track_uri).unwrap())];
 
+    spotify
+        .start_uris_playback(uris.into_iter(), None, None, None)
+        .await
+}
 
-    // let spotify = AuthCodeSpotify::new(creds, oauth);
-    let config = Config  {
-        api_base_url: String::from(DEFAULT_API_BASE_URL),
-        auth_base_url: String::from(DEFAULT_AUTH_BASE_URL),
-        cache_path: PathBuf::from(DEFAULT_CACHE_PATH),
-        pagination_chunks: DEFAULT_PAGINATION_CHUNKS,
-        token_cached: true,
-        token_refreshing: true,
-        token_callback_fn: Arc::new(None),
-    };
-
-    let spotify = AuthCodeSpotify::with_config(creds, oauth, config);
-
-    authorize_client(&spotify).await?
-} */
-
-
-//noinspection RsTypeCheck -> Linter unnecessary flags spotify.parse_response_code(&input)
+//noinspection RsTypeCheck -> Linter incorrectly flags `spotify.parse_response_code(&input)`
 /// Redirect User to authentication page where they copy the URL and paste into terminal to
-/// authenticate the application
+/// authenticate the application.
 fn get_code_from_user(spotify: &AuthCodeSpotify, authorize_url: &str) -> ClientResult<String> {
-
     match webbrowser::open(&authorize_url) {
         Ok(_) => println!("Opened {} in your browser.", authorize_url),
         Err(why) => eprintln!(
@@ -226,36 +203,25 @@ fn get_code_from_user(spotify: &AuthCodeSpotify, authorize_url: &str) -> ClientR
     println!("Please enter the URL you were redirected to: ");
     let mut input = String::new();
     match std::io::stdin().read_line(&mut input) {
-        Ok(_) => {},
+        Ok(_) => {}
         Err(_) => {
-            return Err(ClientError::Cli("Error when trying to read from stdin".to_string()))
+            return Err(ClientError::Cli(
+                "Error when trying to read from stdin".to_string(),
+            ))
         }
     }
 
     match spotify.parse_response_code(&input).ok_or_else(|| 0) {
-        Ok(code) => {
-            Ok(code)
-        },
-        Err(_) => {
-            Err(ClientError::Cli("Error when trying to parse the response code".to_string()))
-        }
+        Ok(code) => Ok(code),
+        Err(_) => Err(ClientError::Cli(
+            "Error when trying to parse the response code".to_string(),
+        )),
     }
 }
 
-
-async fn do_play_song(spotify: &AuthCodeSpotify, track_uri: &str) -> ClientResult<()> {
-    authorize_client(spotify).await?;
-
-    let uris = [PlayableId::Track(TrackId::from_uri(track_uri).unwrap(), )];
-
-    spotify.start_uris_playback(uris.into_iter(), None, None, None).await
-}
-
-
-/// Function to run before doing any task with the Spotify client
 //noinspection RsUnresolvedMethod -> Linter unnecessary flags spotify...lock()
+/// Authorize the Spotify client. Run before doing any task with the client.
 async fn authorize_client(spotify: &AuthCodeSpotify) -> ClientResult<()> {
-
     let authorize_url = spotify.get_authorize_url(false)?;
 
     match spotify.read_token_cache(true).await {
@@ -279,25 +245,26 @@ async fn authorize_client(spotify: &AuthCodeSpotify) -> ClientResult<()> {
                         let code: String = get_code_from_user(&spotify, &authorize_url)?;
 
                         match spotify.request_token(&code).await {
-                            Ok(_) => {},
+                            Ok(_) => {}
                             Err(_) => {
-                                return Err(ClientError::Cli("Error when trying to retrieve the \
-                                token".to_string()));
+                                return Err(ClientError::Cli(
+                                    "Error when trying to retrieve the token".to_string(),
+                                ));
                             }
                         }
-                        // submit_request(&spotify, &code).await?;
                     }
                 }
             }
         }
-        // Otherwise following the usual procedure to get the token.
+        // Otherwise follow the usual procedure to get the token.
         _ => {
             let code: String = get_code_from_user(&spotify, &authorize_url)?;
 
-            if let Ok(_) = spotify.request_token(&code).await {} else {
-                return Err(
-                    ClientError::Cli("Error when trying to retrieve the token".to_string())
-                );
+            if let Ok(_) = spotify.request_token(&code).await {
+            } else {
+                return Err(ClientError::Cli(
+                    "Error when trying to retrieve the token".to_string(),
+                ));
             }
         }
     }

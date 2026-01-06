@@ -1,6 +1,4 @@
-/*
-file: src/recognizer/fingerprint.rs
-*/
+// file: src/recognizer/fingerprint.rs
 use std::collections::HashMap;
 
 use crate::recognizer::spectrogram::{gen_spectrogram, get_peaks, Peak};
@@ -10,19 +8,21 @@ const MAX_FREQUENCY_BITS: i32 = 9;
 const MAX_TIME_DELTA_BITS: i32 = 14;
 const TARGET_ZONE_SIZE: usize = 5;
 
-pub(crate) struct KeyAudioPoint {
-    pub(crate) anchor_time_ms: i32,
-    pub(crate) song_id: i32,
+pub struct KeyAudioPoint {
+    pub anchor_time_ms: i32,
+    pub song_id: i32,
 }
 
 /** Generates the "fingerprint" of an audio file, returning a hash map where
 the key is the unique hash generated from anchor-target pairs and the value is a list of anchor
 times and the associated song.
 */
-pub(crate) fn fingerprint_audio(file_path: &String, song_id: u32) -> Result<HashMap<u32,
-    KeyAudioPoint>, u8> {
+pub async fn fingerprint_audio(
+    file_path: String,
+    song_id: u32,
+) -> Result<HashMap<u32, KeyAudioPoint>, u8> {
     let wav_info: wav::WavInfo = wav::get_wav_info(&file_path)?;
-    
+
     let mut fingerprint: HashMap<u32, KeyAudioPoint> = HashMap::new();
 
     let left_spectrogram =
@@ -50,8 +50,9 @@ pub(crate) fn fingerprint_audio(file_path: &String, song_id: u32) -> Result<Hash
     Ok(fingerprint)
 }
 
-
-pub(crate) fn gen_fingerprints(peaks: Vec<Peak>, song_id: u32) -> HashMap<u32, KeyAudioPoint> {
+/// Returns a map of hash value (u32) to a KeyAudioPoint. The hash is generated based on a Peak
+/// and TARGET_ZONE_SIZE number of Peaks after it.
+pub fn gen_fingerprints(peaks: Vec<Peak>, song_id: u32) -> HashMap<u32, KeyAudioPoint> {
     let mut fingerprints = HashMap::<u32, KeyAudioPoint>::new();
 
     for (i, anchor) in (&peaks).into_iter().enumerate() {
@@ -65,7 +66,7 @@ pub(crate) fn gen_fingerprints(peaks: Vec<Peak>, song_id: u32) -> HashMap<u32, K
                 hash,
                 KeyAudioPoint {
                     anchor_time_ms,
-                    song_id : song_id as i32,
+                    song_id: song_id as i32,
                 },
             );
         }
@@ -74,7 +75,8 @@ pub(crate) fn gen_fingerprints(peaks: Vec<Peak>, song_id: u32) -> HashMap<u32, K
     fingerprints
 }
 
-
+/// Compute a hash by packing the anchor's frequency, the target's frequency, and the difference
+/// in time between the two Peaks into 32 bits.
 fn gen_hash(anchor: &Peak, target: &Peak) -> u32 {
     // Scale down to fit in 9 bits
     let anchor_frequency: u32 = (anchor.frequency / 10.) as u32;
@@ -86,9 +88,8 @@ fn gen_hash(anchor: &Peak, target: &Peak) -> u32 {
     let anchor_frequency_bits = anchor_frequency & ((1 << MAX_FREQUENCY_BITS) - 1); // 9 bits
     let target_frequency_bits = target_frequency & ((1 << MAX_FREQUENCY_BITS) - 1); // 9 bits
     let time_delta_bits = time_delta_ms & ((1 << MAX_TIME_DELTA_BITS) - 1); // 14 bits
-                                                                            // (max ~16 seconds)
 
-    // Combine into 32-bit address
+    // Pack into 32-bit hash
     let hash = (anchor_frequency_bits << 23) | (target_frequency_bits << 14) | time_delta_bits;
 
     hash

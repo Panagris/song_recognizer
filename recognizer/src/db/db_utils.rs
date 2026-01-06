@@ -1,5 +1,5 @@
 /*
-file: /src/db/db.rs
+file: /src/db/db_utils.rs
 provides common functions to interact with the database of songs
 */
 use crate::db::models::{Fingerprint, NewFingerprint, NewSong, Song};
@@ -12,6 +12,7 @@ use dotenvy::dotenv;
 use std::collections::HashMap;
 use std::env;
 
+/// Store all the values in the HashMap into the database's Fingerprints table based on its hash.
 pub fn store_fingerprints(fingerprint_map: HashMap<u32, KeyAudioPoint>) -> Result<(), u8> {
     use crate::db::schema::fingerprints;
 
@@ -40,6 +41,8 @@ pub fn store_fingerprints(fingerprint_map: HashMap<u32, KeyAudioPoint>) -> Resul
     Ok(())
 }
 
+/// With a vec of hashes, retrieve the corresponding KeyAudioPoints in the database, returning a
+/// HashMap.
 pub fn get_key_audio_points(hashes: Vec<i32>) -> Result<HashMap<u32, Vec<KeyAudioPoint>>, u8> {
     use crate::db::schema::fingerprints;
     let mut key_audio_points = HashMap::<u32, Vec<KeyAudioPoint>>::new();
@@ -68,6 +71,7 @@ pub fn get_key_audio_points(hashes: Vec<i32>) -> Result<HashMap<u32, Vec<KeyAudi
     Ok(key_audio_points)
 }
 
+/// Adds a Tracks metadata (title, artist, Spotify URI) to the database's Songs table.
 pub fn store_song(title: &String, artist: &String, spotify_uri: Option<String>) -> Result<u32, u8> {
     use crate::db::schema::songs;
 
@@ -89,7 +93,7 @@ pub fn store_song(title: &String, artist: &String, spotify_uri: Option<String>) 
     {
         Ok(inserted_song) => inserted_song,
         Err(_) => {
-            eprintln!("Error saving song to database!");
+            eprintln!("Error saving `{}` metadata to database!", title);
             return Err(DATABASE_INSERT_ERROR);
         }
     };
@@ -97,6 +101,7 @@ pub fn store_song(title: &String, artist: &String, spotify_uri: Option<String>) 
     Ok(song.id as u32)
 }
 
+/// Retrieve a Song based on the unique ID produced when initially stored.
 pub fn get_song_by_id(song_id: u32) -> Result<Song, u8> {
     use crate::db::schema::songs;
 
@@ -117,42 +122,9 @@ pub fn get_song_by_id(song_id: u32) -> Result<Song, u8> {
     Ok(matching_songs[0].clone())
 }
 
-// pub fn get_song_by_song_key(song_key: String) -> Result<Song, u8> {
-//     use crate::db::schema::songs;
-//
-//     let connection = &mut establish_connection();
-//
-//     let matching_songs: Vec<Song> = match songs::table
-//         .filter(songs::song_key.eq(song_key))
-//         .load::<Song>(connection)
-//     {
-//         Ok(songs) => songs,
-//         Err(_) => return Err(DATABASE_QUERY_ERROR),
-//     };
-//
-//     if matching_songs.len() < 1 {
-//         return Err(NO_SONG_MATCH_ERROR);
-//     }
-//
-//     Ok(matching_songs[0].clone())
-// }
-
-pub(crate) fn establish_connection() -> SqliteConnection {
-    dotenv().ok();
-
-    let database_url: String = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-
-    SqliteConnection::establish(database_url.as_str())
-        .unwrap_or_else(|_| panic!("Error connecting to {}", database_url))
-}
-
-/// Using a song_title and song_artist, finds the corresponding DB entry and udpates the uri
-pub(crate) fn update_song_uri(
-    song_title: &String,
-    song_artist: &String,
-    uri: String,
-) -> Result<(), u8> {
-
+/// Using a song_title and song_artist, finds the corresponding database entry and updates the
+/// Spotify URI.
+pub fn update_song_uri(song_title: &String, song_artist: &String, uri: String) -> Result<(), u8> {
     use crate::db::schema::songs;
 
     let connection = &mut establish_connection();
@@ -170,4 +142,14 @@ pub(crate) fn update_song_uri(
             Err(DATABASE_INSERT_ERROR)
         }
     }
+}
+
+// Helper function that returns a struct for querying and modifying the database.
+fn establish_connection() -> SqliteConnection {
+    dotenv().ok();
+
+    let database_url: String = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+
+    SqliteConnection::establish(database_url.as_str())
+        .unwrap_or_else(|_| panic!("Error connecting to {}", database_url))
 }

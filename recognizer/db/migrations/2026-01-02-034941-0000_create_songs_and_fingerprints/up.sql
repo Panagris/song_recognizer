@@ -10,6 +10,6 @@ CREATE TABLE IF NOT EXISTS songs (
     id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL,
     artist TEXT NOT NULL,
-    spotify_uri TEXT NOT NULL,
+    spotify_uri TEXT NULLABLE,
     song_key TEXT NOT NULL UNIQUE
 );

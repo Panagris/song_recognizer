@@ -11,7 +11,7 @@ pub struct Match {
     pub song_title: String,
     pub song_artist: String,
     pub spotify_uri: Option<String>,
-    score: f64,
+    pub score: f64,
 }
 
 /*
