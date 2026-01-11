@@ -4,10 +4,11 @@
 
 use crate::recognizer::declarations::SPOTIFY_ERROR;
 use rspotify::{
+    AuthCodeSpotify, ClientError, ClientResult, Config, Credentials, DEFAULT_API_BASE_URL,
+    DEFAULT_AUTH_BASE_URL, DEFAULT_CACHE_PATH, DEFAULT_PAGINATION_CHUNKS, OAuth,
     model::{Country, FullTrack, Market, SearchResult, SearchType, TrackId},
     prelude::*,
-    scopes, AuthCodeSpotify, ClientError, ClientResult, Config, Credentials, OAuth,
-    DEFAULT_API_BASE_URL, DEFAULT_AUTH_BASE_URL, DEFAULT_CACHE_PATH, DEFAULT_PAGINATION_CHUNKS,
+    scopes,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -41,10 +42,10 @@ async fn search_tracks(spotify: &AuthCodeSpotify, track_query: &str) -> ClientRe
 //noinspection RsUnresolvedMethod
 /// Returns the unique Spotify URI for the top result of a search for a Track based on a name and
 /// artist if the track exists.
-pub async fn get_track_uri(track_name: String, artist: String) -> Option<String> {
+pub async fn get_track_uri(track_name: String, artist: String, album: String) -> Option<String> {
     let spotify: AuthCodeSpotify = get_spotify_client();
 
-    let query = format!("track:{} artist:{}", track_name, artist);
+    let query = format!("track:{} artist:{} album:{}", track_name, artist, album);
 
     let result: ClientResult<_> = search_tracks(&spotify, query.as_str()).await;
 
@@ -59,12 +60,17 @@ pub async fn get_track_uri(track_name: String, artist: String) -> Option<String>
 
     let desired_track: FullTrack = match track_results {
         SearchResult::Tracks(page_of_tracks) => {
-            let tracks = page_of_tracks.items;
+            let found_tracks = page_of_tracks.items;
             let mut desired_track: Option<FullTrack> = None;
 
-            for track in tracks {
-                if track.name.contains(&track_name) {
-                    desired_track = Some(track);
+            for full_track in found_tracks {
+                // HACK: this might not work if two tracks are different because of their case
+                // This was done because the result of "Bruises Off the Peach" was "Bruises [o]ff the
+                // Peach"
+                let found_name: String = full_track.name.to_lowercase();
+
+                if found_name.contains(&track_name.to_lowercase()) {
+                    desired_track = Some(full_track);
                     break;
                 }
             }
@@ -91,8 +97,14 @@ pub async fn get_track_uri(track_name: String, artist: String) -> Option<String>
 
 /// Given a name and artist, play a track on Spotify. Returns the Spotify URI for that track or
 /// error.
-pub async fn play_song(track_name: &String, artist: &String) -> Result<String, u8> {
-    let track_uri = match get_track_uri(track_name.to_string(), artist.to_string()).await {
+pub async fn play_song(track_name: &String, artist: &String, album: &String) -> Result<String, u8> {
+    let track_uri = match get_track_uri(
+        track_name.to_string(),
+        artist.to_string(),
+        album.to_string(),
+    )
+    .await
+    {
         Some(track_uri) => track_uri,
         None => return Err(SPOTIFY_ERROR),
     };
@@ -207,7 +219,7 @@ fn get_code_from_user(spotify: &AuthCodeSpotify, authorize_url: &str) -> ClientR
         Err(_) => {
             return Err(ClientError::Cli(
                 "Error when trying to read from stdin".to_string(),
-            ))
+            ));
         }
     }
 

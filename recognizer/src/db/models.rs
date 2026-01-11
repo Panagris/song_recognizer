@@ -26,9 +26,10 @@ pub struct Song {
     pub id: i32,
     pub title: String,
     pub artist: String,
+    pub album: String,
     pub spotify_uri: Option<String>,
     #[allow(unused)]
-    pub song_key: String // form: song--artist, for easy non-ID lookup
+    pub song_key: String, // form: song--artist, for easy non-ID lookup
 }
 
 #[derive(Insertable)]
@@ -36,6 +37,7 @@ pub struct Song {
 pub struct NewSong {
     pub title: String,
     pub artist: String,
+    pub album: String,
     pub spotify_uri: Option<String>,
-    pub song_key: String
+    pub song_key: String,
 }

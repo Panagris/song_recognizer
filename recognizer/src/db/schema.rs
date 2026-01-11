@@ -13,6 +13,7 @@ diesel::table! {
         id -> Integer,
         title -> Text,
         artist -> Text,
+        album -> Text,
         spotify_uri -> Nullable<Text>,
         song_key -> Text,
     }

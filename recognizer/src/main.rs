@@ -8,7 +8,10 @@ mod recognizer;
 mod spotify;
 
 use crate::db::db_utils;
-use crate::recognizer::declarations::{DATABASE_INSERT_ERROR, FILE_NOT_FOUND, INCOMPATIBLE_FILE_ERROR, MATCH_SCORE_THRESHOLD, NO_SONG_MATCH_ERROR};
+use crate::recognizer::declarations::{
+    DATABASE_INSERT_ERROR, FILE_NOT_FOUND, INCOMPATIBLE_FILE_ERROR, MATCH_SCORE_THRESHOLD,
+    NO_SONG_MATCH_ERROR,
+};
 use crate::recognizer::fingerprint;
 use crate::recognizer::fingerprint::KeyAudioPoint;
 use crate::recognizer::shazam;
@@ -45,11 +48,12 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<(), u8> {
-    let _file = "../songs/White Teeth_Ryan Beatty.wav".to_string();
+    let _file = "../songs/White Teeth_Ryan Beatty_Calico.wav".to_string();
     let _song: String = "White Teeth".to_string();
     let _artist: String = "Ryan Beatty".to_string();
+    let _album: String = "Calico".to_string();
 
-    assert_eq!(get_song_title_artist(&_file), Ok((_song, _artist)));
+    assert_eq!(get_song_info(&_file), Ok((_song, _artist, _album)));
 
     // Parse command line arguments.
     let args = Args::parse();
@@ -69,12 +73,13 @@ async fn main() -> Result<(), u8> {
     } else if add_song_files.len() > 0 {
         let song_file_path: &String = &add_song_files[0];
 
-        let (song_title, song_artist): (String, String) = get_song_title_artist(song_file_path)?;
+        let (name, artist, album): (String, String, String) = get_song_info(song_file_path)?;
 
         let uri =
-            spotify_utils::get_track_uri(song_title.to_string(), song_artist.to_string()).await;
+            spotify_utils::get_track_uri(name.to_string(), artist.to_string(), album.to_string())
+                .await;
 
-        let song_id = db_utils::store_song(&song_title, &song_artist, uri)?;
+        let song_id = db_utils::store_song(&name, &artist, &album, uri)?;
 
         let fingerprint =
             fingerprint::fingerprint_audio(song_file_path.to_string(), song_id).await?;
@@ -107,7 +112,7 @@ async fn main() -> Result<(), u8> {
         }
 
         let best_match: Match = matches[0].clone();
-        
+
         if best_match.score < MATCH_SCORE_THRESHOLD {
             eprintln!("No LIKELY match found for `{}`!", id_song_file);
             println!("Best match was: {:?}", best_match);
@@ -116,19 +121,23 @@ async fn main() -> Result<(), u8> {
 
         if let Some(uri) = best_match.spotify_uri {
             if uri.is_empty() {
-                let uri: String =
-                    spotify_utils::play_song(&best_match.song_title, &best_match.song_artist)
-                        .await?;
+                let uri: String = spotify_utils::play_song(
+                    &best_match.name,
+                    &best_match.artist,
+                    &best_match.album,
+                )
+                .await?;
 
-                db_utils::update_song_uri(&best_match.song_title, &best_match.song_artist, uri)?;
+                db_utils::update_song_uri(&best_match.name, &best_match.artist, uri)?;
             } else {
                 spotify_utils::play_song_from_uri(&uri).await?;
             }
         } else {
             let uri: String =
-                spotify_utils::play_song(&best_match.song_title, &best_match.song_artist).await?;
+                spotify_utils::play_song(&best_match.name, &best_match.artist, &best_match.album)
+                    .await?;
 
-            db_utils::update_song_uri(&best_match.song_title, &best_match.song_artist, uri)?;
+            db_utils::update_song_uri(&best_match.name, &best_match.artist, uri)?;
         }
     }
 
@@ -139,19 +148,20 @@ async fn main() -> Result<(), u8> {
 /// Spotify track URIs, fingerprinting the audio, and storing to database.
 async fn add_song_files_concurrently(songs_to_add: &Vec<String>) -> Result<(), u8> {
     let mut get_uri_tasks = Vec::with_capacity(songs_to_add.len());
-    let mut title_artist_file_vec = Vec::<(String, String, String)>::new();
+    let mut audio_details = Vec::<(String, String, String, String)>::new();
 
     for song_file_path in songs_to_add {
         // Parsing the song title and arist is low-work => process sequentially
-        let (song_title, song_artist) = match get_song_title_artist(song_file_path) {
-            Ok((song_title, song_artist)) => {
-                title_artist_file_vec.push((
-                    song_title.to_string(),
-                    song_artist.to_string(),
+        let (name, artist, album) = match get_song_info(song_file_path) {
+            Ok((name, artist, album)) => {
+                audio_details.push((
+                    name.to_string(),
+                    artist.to_string(),
+                    album.to_string(),
                     song_file_path.to_string(),
                 ));
 
-                (song_title, song_artist)
+                (name, artist, album)
             }
             Err(_) => {
                 eprintln!(
@@ -162,23 +172,20 @@ async fn add_song_files_concurrently(songs_to_add: &Vec<String>) -> Result<(), u
             }
         };
 
-        let moveable_song = song_title.to_string();
-        let moveable_artist = song_artist.to_string();
-
         // `get_track_uri` relies on the Spotify API's response time => process concurrently.
         // Calling `tokio::spawn` immediately begins running in background
         get_uri_tasks.push((
-            song_title.to_string(),
-            tokio::spawn(spotify_utils::get_track_uri(moveable_song, moveable_artist)),
+            name.to_string(),
+            tokio::spawn(spotify_utils::get_track_uri(name, artist, album)),
         ))
     }
 
     // Storing song metadata to happen sequentially to prevent data races.
     // So, join the threads before
-    let mut uris_vec = Vec::<Option<String>>::new();
+    let mut uris = Vec::<Option<String>>::new();
     for (song_title, task) in get_uri_tasks {
         match task.await {
-            Ok(option) => uris_vec.push(option),
+            Ok(option) => uris.push(option),
             Err(_) => {
                 eprintln!(
                     "ERROR: Could not join spotify_utils::get_track_uri() task for song \
@@ -190,8 +197,8 @@ async fn add_song_files_concurrently(songs_to_add: &Vec<String>) -> Result<(), u
     }
 
     let mut song_ids_file_vec = Vec::<(u32, String)>::new();
-    for (uri, (title, artist, file)) in uris_vec.into_iter().zip(&title_artist_file_vec) {
-        match db_utils::store_song(&title, &artist, uri) {
+    for (uri, (title, artist, album, file)) in uris.into_iter().zip(&audio_details) {
+        match db_utils::store_song(&title, &artist, &album, uri) {
             Ok(song_id) => {
                 song_ids_file_vec.push((song_id, file.to_string()));
             }
@@ -207,11 +214,9 @@ async fn add_song_files_concurrently(songs_to_add: &Vec<String>) -> Result<(), u
     // Fingerprinting does not interact with database; safe to be concurrent.
     let mut fingerprinting_tasks = Vec::new();
     for (song_id, song_file_path) in song_ids_file_vec {
-        let file_path = song_file_path.to_string();
-
         fingerprinting_tasks.push((
             song_file_path.to_string(),
-            tokio::spawn(fingerprint::fingerprint_audio(file_path, song_id)),
+            tokio::spawn(fingerprint::fingerprint_audio(song_file_path, song_id)),
         ))
     }
 
@@ -244,7 +249,8 @@ async fn add_song_files_concurrently(songs_to_add: &Vec<String>) -> Result<(), u
     Ok(())
 }
 
-fn get_song_title_artist(file_path: &String) -> Result<(String, String), u8> {
+/// Returns (song_title, artist, album)
+fn get_song_info(file_path: &String) -> Result<(String, String, String), u8> {
     match File::open(file_path) {
         Err(_) => {
             eprintln!("ERROR: Cannot open file: `{}`", file_path);
@@ -266,16 +272,16 @@ fn get_song_title_artist(file_path: &String) -> Result<(String, String), u8> {
 
     let vec_names: Vec<&str> = file_name.split('_').collect();
 
-    if vec_names.len() < 2 {
+    if vec_names.len() < 3 {
         eprintln!(
-            "ERROR: `{}` does not have underscore-delimited parts!",
+            "ERROR: `{}` does not have sufficient underscore-delimited parts!",
             file_path
         );
-        println!("Example: `title_artist.wav`");
+        println!("Example: `title_artist_album.wav`");
         return Err(INCOMPATIBLE_FILE_ERROR);
     }
 
-    let (song_name, artist_name) = (vec_names[0], vec_names[1]);
+    let (song, artist, album) = (vec_names[0], vec_names[1], vec_names[2]);
 
-    Ok((song_name.to_string(), artist_name.to_string()))
+    Ok((song.to_string(), artist.to_string(), album.to_string()))
 }

@@ -1,7 +1,7 @@
 // file: src/recognizer/spectrogram.rs
 
 use crate::recognizer::declarations::SPECTROGRAM_GENERATION_FAILURE;
-use rustfft::{num_complex::Complex, FftPlanner};
+use rustfft::{FftPlanner, num_complex::Complex};
 use std::f64::consts::PI;
 
 const MAX_FREQUENCY: f64 = 5000.0; // 5 kHz
@@ -24,6 +24,10 @@ pub fn gen_spectrogram(sample: Vec<f64>, sample_rate: u32) -> Result<Vec<Vec<f64
 
     let filtered_sample = lowpass_filter(sample, MAX_FREQUENCY, sample_rate);
 
+    // TODO: songs in the database have a sample rate of 44.1 kHz; consider checking if the
+    // sample rate of `sample` is 48 kHz and rejecting if it is. Calling downsample() twice did
+    // not work.
+    // TODO: maybe record 48 kHz versions of all the songs?
     let downsampled: Vec<f64> = downsample(filtered_sample, sample_rate, sample_rate / DSP_RATIO)?;
 
     let hanning_window: Vec<f64> = (0..WINDOW_SIZE)

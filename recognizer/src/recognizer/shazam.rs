@@ -1,15 +1,15 @@
 /*
 file: src/recognizer/shazam.rs
 */
-use std::collections::HashMap;
 use crate::db::db_utils;
-use crate::recognizer::fingerprint::{KeyAudioPoint};
-
+use crate::recognizer::fingerprint::KeyAudioPoint;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct Match {
-    pub song_title: String,
-    pub song_artist: String,
+    pub name: String,
+    pub artist: String,
+    pub album: String,
     pub spotify_uri: Option<String>,
     pub score: f64,
 }
@@ -35,12 +35,11 @@ pub(crate) fn find_match (sample: Vec<f64>, sample_duration: f64, sample_rate: u
     Ok(matches[0].clone())
 }*/
 
-
 pub fn find_matches_from_fingerprint(fingerprint: HashMap<u32, u32>) -> Result<Vec<Match>, u8> {
-
     let hashes: Vec<i32> = fingerprint.keys().cloned().map(|x: u32| x as i32).collect();
 
-    let matched_fingerprints: HashMap<u32, Vec<KeyAudioPoint>> = db_utils::get_key_audio_points(hashes)?;
+    let matched_fingerprints: HashMap<u32, Vec<KeyAudioPoint>> =
+        db_utils::get_key_audio_points(hashes)?;
 
     // A HashMap mapping unsigned integers to fixed-sized arrays of size 2.
     // songID -> [(sampleTime, dbTime)
@@ -52,36 +51,39 @@ pub fn find_matches_from_fingerprint(fingerprint: HashMap<u32, u32>) -> Result<V
     // A histogram, songID -> timestamp -> count
     let mut target_zones = HashMap::<u32, HashMap<u32, i32>>::new();
 
-
     for (hash, key_audio_point_vec) in matched_fingerprints {
-
         for key_audio_point in key_audio_point_vec {
-
             let song_id: u32 = key_audio_point.song_id as u32;
             let anchor_time_ms: u32 = key_audio_point.anchor_time_ms as u32;
 
-            matches.entry(song_id).and_modify(|x: &mut Vec<[u32; 2]>| {
-
-                x.push([fingerprint[&hash], anchor_time_ms])
-            }).or_insert(Vec::new());
+            matches
+                .entry(song_id)
+                .and_modify(|x: &mut Vec<[u32; 2]>| x.push([fingerprint[&hash], anchor_time_ms]))
+                .or_insert(Vec::new());
 
             // If there is already a timestamp for this hash, see if the new timestamp we
             // encountered is closer. If not, insert the current anchor time
-            timestamps.entry(song_id).and_modify(|timestamp: &mut u32| {
-                if anchor_time_ms < *timestamp {
-                    *timestamp = anchor_time_ms
-                }
-            }).or_insert(anchor_time_ms);
+            timestamps
+                .entry(song_id)
+                .and_modify(|timestamp: &mut u32| {
+                    if anchor_time_ms < *timestamp {
+                        *timestamp = anchor_time_ms
+                    }
+                })
+                .or_insert(anchor_time_ms);
 
             // For a song ID, get a Map that represents the count of "matches" for a specific
             // anchor time, either incrementing that count or initializing it to 0.
-            target_zones.entry(song_id).and_modify(|zone_map: &mut HashMap<u32, i32>| {
-
-                zone_map.entry(anchor_time_ms).and_modify(|count: &mut i32| {
-                    *count += 1;
-                }).or_insert(0);
-            });
-
+            target_zones
+                .entry(song_id)
+                .and_modify(|zone_map: &mut HashMap<u32, i32>| {
+                    zone_map
+                        .entry(anchor_time_ms)
+                        .and_modify(|count: &mut i32| {
+                            *count += 1;
+                        })
+                        .or_insert(0);
+                });
         }
     }
 
@@ -90,18 +92,16 @@ pub fn find_matches_from_fingerprint(fingerprint: HashMap<u32, u32>) -> Result<V
     let mut match_list = Vec::<Match>::new();
 
     for (song_id, score) in scores {
-
         match db_utils::get_song_by_id(song_id) {
             Ok(song) => {
-                match_list.push(
-                    Match {
-                            song_title: song.title,
-                            song_artist: song.artist,
-                            spotify_uri: song.spotify_uri,
-                            score
-                    }
-                );
-            },
+                match_list.push(Match {
+                    name: song.title,
+                    artist: song.artist,
+                    album: song.album,
+                    spotify_uri: song.spotify_uri,
+                    score,
+                });
+            }
             Err(error) => {
                 eprintln!("Failed to get song: {}", song_id);
                 return Err(error);
@@ -109,16 +109,14 @@ pub fn find_matches_from_fingerprint(fingerprint: HashMap<u32, u32>) -> Result<V
         }
     }
 
-    match_list.as_mut_slice().sort_by(|a: &Match, b: &Match| {
-        b.score.total_cmp(&a.score)
-    });
-
+    match_list
+        .as_mut_slice()
+        .sort_by(|a: &Match, b: &Match| b.score.total_cmp(&a.score));
 
     Ok(match_list)
 }
 
 fn analyze_relative_timing(matches: HashMap<u32, Vec<[u32; 2]>>) -> HashMap<u32, f64> {
-
     let mut scores = HashMap::<u32, f64>::new();
 
     for (song_id, vector_of_times) in matches {
@@ -133,16 +131,20 @@ fn analyze_relative_timing(matches: HashMap<u32, Vec<[u32; 2]>>) -> HashMap<u32,
 
             // Bin offsets in 100ms buckets to allow for small timing variations
             let offset_key = offset / 100;
-            offset_counts.entry(offset_key).and_modify(|count: &mut i32| {
-                *count += 1;
-            }).or_insert(0);
+            offset_counts
+                .entry(offset_key)
+                .and_modify(|count: &mut i32| {
+                    *count += 1;
+                })
+                .or_insert(0);
         }
 
-        if let Some(key_value_pair) = offset_counts.into_iter()
-            .max_by_key(|(_, count)| *count)
-        {
+        if let Some(key_value_pair) = offset_counts.into_iter().max_by_key(|(_, count)| *count) {
             let max_value = key_value_pair.1 as f64;
-            scores.entry(song_id).and_modify(|x| {*x = max_value}).or_insert(max_value);
+            scores
+                .entry(song_id)
+                .and_modify(|x| *x = max_value)
+                .or_insert(max_value);
         }
     }
 

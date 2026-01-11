@@ -71,8 +71,13 @@ pub fn get_key_audio_points(hashes: Vec<i32>) -> Result<HashMap<u32, Vec<KeyAudi
     Ok(key_audio_points)
 }
 
-/// Adds a Tracks metadata (title, artist, Spotify URI) to the database's Songs table.
-pub fn store_song(title: &String, artist: &String, spotify_uri: Option<String>) -> Result<u32, u8> {
+/// Adds a Tracks metadata (title, artist, album, Spotify URI) to the database's Songs table.
+pub fn store_song(
+    title: &String,
+    artist: &String,
+    album: &String,
+    spotify_uri: Option<String>,
+) -> Result<u32, u8> {
     use crate::db::schema::songs;
 
     let connection = &mut establish_connection();
@@ -82,6 +87,7 @@ pub fn store_song(title: &String, artist: &String, spotify_uri: Option<String>) 
     let new_post = NewSong {
         title: title.to_owned(),
         artist: artist.to_owned(),
+        album: album.to_owned(),
         spotify_uri,
         song_key,
     };
